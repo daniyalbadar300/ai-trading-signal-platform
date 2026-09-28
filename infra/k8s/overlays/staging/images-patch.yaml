@@ -1,0 +1,28 @@
+# Images are patched at CD time from workflow env (owner + SHA tag).
+# These placeholders keep `kubectl kustomize` valid for local/CI validation.
+# CD step "Pin images" rewrites only the __CD_*__ tokens.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: backend
+          image: ghcr.io/__CD_OWNER__/ai-trading-backend:__CD_TAG__
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: frontend
+          image: ghcr.io/__CD_OWNER__/ai-trading-frontend:__CD_TAG__

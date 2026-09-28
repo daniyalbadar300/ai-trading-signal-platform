@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ai-trading-staging
+
+# CD target: same shape as dev (mock provider, 1 replica each) but with
+# immutable GHCR images pinned to the exact SHA that CD just published.
+# CD patches the image names/tags from workflow env, so no owner is hardcoded.
+
+resources:
+  - ../../base
+  - namespace.yaml
+
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - DATA_PROVIDER=mock
+      - WORKER_INTERVAL_SECONDS=15
+      - LOG_LEVEL=INFO
+
+patches:
+  - path: replica-patch.yaml
+  - path: images-patch.yaml

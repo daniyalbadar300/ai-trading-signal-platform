@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend — ruff + pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install (editable + dev extras)
+        run: pip install -e ".[dev]"
+
+      - name: Ruff
+        run: python -m ruff check app tests
+
+      - name: Pytest
+        # conftest.py pins DATA_PROVIDER=mock → no network dependency
+        run: python -m pytest
+
+  frontend:
+    name: Frontend — vitest + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Vitest
+        run: npm test
+
+      - name: Build (tsc -b && vite build)
+        run: npm run build
+
+  k8s-validate:
+    name: Kustomize — base + overlays
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.0
+
+      - name: kubectl kustomize (dry-render every manifest set)
+        run: |
+          set -euo pipefail
+          for dir in infra/k8s/base infra/k8s/overlays/dev infra/k8s/overlays/staging infra/k8s/overlays/prod; do
+            echo "::group::kubectl kustomize $dir"
+            kubectl kustomize "$dir" > /dev/null
+            echo "::endgroup::"
+          done
+          echo "✅ all kustomizations render"
+
+  e2e-kind:
+    name: E2E — kind deploy + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, frontend, k8s-validate]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images (tags match base kustomization :latest)
+        run: |
+          docker build -t ai-trading/backend:latest backend
+          docker build -t ai-trading/frontend:latest frontend
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: ai-trading
+          config: infra/kind-config.yaml
+
+      - name: Load images into kind
+        run: |
+          kind load docker-image ai-trading/backend:latest --name ai-trading
+          kind load docker-image ai-trading/frontend:latest --name ai-trading
+
+      - name: Deploy dev overlay (mock provider, 1 replica)
+        run: |
+          kubectl apply -k infra/k8s/overlays/dev
+          kubectl -n ai-trading-dev rollout status deploy/backend  --timeout=180s
+          kubectl -n ai-trading-dev rollout status deploy/frontend --timeout=180s
+          kubectl -n ai-trading-dev rollout status deploy/worker   --timeout=180s
+          kubectl -n ai-trading-dev get pods -o wide
+
+      - name: Smoke — in-cluster API + frontend
+        run: |
+          set -euo pipefail
+          kubectl -n ai-trading-dev run smoke --image=curlimages/curl:8.10.1 --restart=Never --command -- sleep 300
+          kubectl -n ai-trading-dev wait --for=condition=Ready pod/smoke --timeout=90s
+          kubectl -n ai-trading-dev exec smoke -- curl -fsS http://backend:8000/health | grep -q '"provider":"mock"'
+          kubectl -n ai-trading-dev exec smoke -- curl -fsS http://frontend/ | grep -qi '<!doctype html'
+
+          # worker generates signals (15s cycle in dev) → history must fill up
+          ok=0
+          for i in $(seq 1 40); do
+            total=$(kubectl -n ai-trading-dev exec smoke -- curl -fsS http://backend:8000/api/v1/stats \
+              | grep -o '"total":[0-9]*' | cut -d: -f2 || echo 0)
+            if [ "${total:-0}" -ge 1 ]; then
+              echo "✅ worker→store flow OK (total signals: $total)"
+              ok=1
+              break
+            fi
+            sleep 3
+          done
+          [ "$ok" = "1" ] || { echo "worker produced no signals"; exit 1; }
+
+      - name: Smoke — ingress (nginx) on :8090
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+          kubectl -n ingress-nginx wait --for=condition=ready pod -l app.kubernetes.io/component=controller --timeout=300s
+          ok=0
+          for i in $(seq 1 20); do
+            if curl -fsS -H "Host: trading.local" http://127.0.0.1:8090/api/v1/stats | grep -q '"total"'; then
+              echo "✅ ingress OK"
+              ok=1
+              break
+            fi
+            sleep 3
+          done
+          [ "$ok" = "1" ] || { echo "ingress smoke failed"; exit 1; }
+
+      - name: Worker logs (debuggability)
+        if: always()
+        run: kubectl -n ai-trading-dev logs deploy/worker --tail=30 || true
+
+      - name: Cleanup smoke pod
+        if: always()
+        run: kubectl -n ai-trading-dev delete pod smoke --ignore-not-found --force --grace-period=0

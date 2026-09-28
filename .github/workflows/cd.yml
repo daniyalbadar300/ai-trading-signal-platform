@@ -1,0 +1,163 @@
+name: CD
+
+# Publishes immutable images to GHCR on every main push, then deploys the
+# staging overlay (which pins those exact SHAs) into a fresh kind cluster
+# and runs the same in-cluster smoke tests as CI.
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+concurrency:
+  group: cd-${{ github.ref }}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMG: ghcr.io/${{ github.repository_owner }}/ai-trading-backend
+  FRONTEND_IMG: ghcr.io/${{ github.repository_owner }}/ai-trading-frontend
+
+jobs:
+  publish:
+    name: Build & push GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMG }}:${{ steps.meta.outputs.tag }}
+            ${{ env.BACKEND_IMG }}:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMG }}:${{ steps.meta.outputs.tag }}
+            ${{ env.FRONTEND_IMG }}:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+  deploy-staging:
+    name: Deploy staging (kind) + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: publish
+    env:
+      IMAGE_TAG: ${{ needs.publish.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The staging overlay ships __CD_OWNER__/__CD_TAG__ placeholders so the
+      # overlay stays renderable without knowing the GHCR owner; rewrite them
+      # from the workflow's actual owner + published SHA tag.
+      - name: Pin images to published SHA tag
+        run: |
+          set -euo pipefail
+          sed -i \
+            -e "s/__CD_OWNER__/${{ github.repository_owner }}/g" \
+            -e "s/__CD_TAG__/${IMAGE_TAG}/g" \
+            infra/k8s/overlays/staging/images-patch.yaml
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: ai-trading
+          config: infra/kind-config.yaml
+
+      # GHCR images are private by default → the staging pods reference a
+      # docker-registry secret (imagePullSecrets in images-patch.yaml).
+      - name: Registry credentials for cluster pulls
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          kubectl create namespace ai-trading-staging --dry-run=client -o yaml \
+            | kubectl apply -f -
+          kubectl create secret docker-registry ghcr-pull \
+            --namespace ai-trading-staging \
+            --docker-server=ghcr.io \
+            --docker-username="$GHCR_USER" \
+            --docker-password="$GHCR_TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy staging overlay (SHA-pinned GHCR images)
+        run: |
+          kubectl apply -k infra/k8s/overlays/staging
+          kubectl -n ai-trading-staging rollout status deploy/backend  --timeout=240s
+          kubectl -n ai-trading-staging rollout status deploy/frontend --timeout=240s
+          kubectl -n ai-trading-staging rollout status deploy/worker   --timeout=240s
+          kubectl -n ai-trading-staging get pods -o wide
+
+      - name: Smoke — in-cluster API + frontend
+        run: |
+          set -euo pipefail
+          kubectl -n ai-trading-staging run smoke --image=curlimages/curl:8.10.1 --restart=Never --command -- sleep 300
+          kubectl -n ai-trading-staging wait --for=condition=Ready pod/smoke --timeout=90s
+          kubectl -n ai-trading-staging exec smoke -- curl -fsS http://backend:8000/health | grep -q '"provider":"mock"'
+          kubectl -n ai-trading-staging exec smoke -- curl -fsS http://frontend/ | grep -qi '<!doctype html'
+          ok=0
+          for i in $(seq 1 40); do
+            total=$(kubectl -n ai-trading-staging exec smoke -- curl -fsS http://backend:8000/api/v1/stats \
+              | grep -o '"total":[0-9]*' | cut -d: -f2 || echo 0)
+            if [ "${total:-0}" -ge 1 ]; then
+              echo "✅ staging worker→store flow OK (total signals: $total)"
+              ok=1
+              break
+            fi
+            sleep 3
+          done
+          [ "$ok" = "1" ] || { echo "staging worker produced no signals"; exit 1; }
+
+      - name: Smoke — ingress (nginx) on :8090
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+          kubectl -n ingress-nginx wait --for=condition=ready pod -l app.kubernetes.io/component=controller --timeout=300s
+          ok=0
+          for i in $(seq 1 20); do
+            if curl -fsS -H "Host: trading.local" http://127.0.0.1:8090/api/v1/stats | grep -q '"total"'; then
+              echo "✅ ingress OK"
+              ok=1
+              break
+            fi
+            sleep 3
+          done
+          [ "$ok" = "1" ] || { echo "ingress smoke failed"; exit 1; }
+
+      - name: Worker logs (debuggability)
+        if: always()
+        run: kubectl -n ai-trading-staging logs deploy/worker --tail=30 || true
+
+      - name: Cleanup smoke pod
+        if: always()
+        run: kubectl -n ai-trading-staging delete pod smoke --ignore-not-found --force --grace-period=0
