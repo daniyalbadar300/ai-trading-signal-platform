@@ -18,6 +18,32 @@ for base + dev/staging/prod; workflow YAML syntax validated.
 
 First push par CI green hona expected; agar e2e fail ho to PROGRESS phase-5/6 gotchas dekhein.
 
+**First push live runs (Sep 28) — CI + CD dono GREEN on `453af2b`:**
+Repo: `github.com/daniyalbadar300/ai-trading-signal-platform` (public, rename ke baad).
+CD verified: GHCR publish (sha+latest, single-manifest) → kind staging deploy with REAL
+GHCR pulls → rollouts + smoke. CI verified: 4 jobs incl. kind e2e.
+
+### First-push ke live-run gotchas (do not regress)
+10. **PEP 621: `homepage` [project] ke under invalid hai** — setuptools build par reject
+    karta hai (`project must not contain {'homepage'}`) → pip install + docker build dono
+    fat-te hain. Sahi jagah: `[project.urls] Homepage = ...`.
+11. **buildx default provenance attestations = OCI image index (2 manifests)** — kind ka
+    containerd aisa index registry se pull nahi kar pata (imagePullBackOff → rollout
+    timeout). Fix: `provenance: false` in build-push-action. Verify: token endpoint se
+    GHCR manifest check (`mediaType=oci.image.manifest` = plain, `refs=0`).
+12. **Staging overlay mein worker deployment ka image patch zaroori** — worker backend
+    image reuse karta hai (different command); patch miss → `ai-trading/backend:latest`
+    Docker Hub se (nonexistent) → ImagePullBackOff. **Local sim ye pakad nahi sakta**
+    kyunki wahan image node-loaded hoti hai; sirf real GHCR pull path par dikhta hai.
+13. **Fresh repo ka first push with workflows kabhi kabhi trigger nahi hota** (rename ke
+    baad aur bhi). Fix: ek chhota non-md commit push karo; `paths-ignore: **.md` md-only
+    pushes skip karta hai (design intent).
+14. **GHCR anonymous check**: pehle `ghcr.io/token?scope=...:pull` se token lo, phir
+    manifests API — direct 401 normal hai (auth-free ≠ invalid).
+15. Public repo: job logs API/sign-in ke baghair nahi khulte; job page HTML annotations
+    ("STEP FAILED: ...") se failing step identify hota hai, timings se error class
+    (fast crash vs timeout) ka pata chalta hai.
+
 ### What exists (new in phase 6)
 - `.github/workflows/ci.yml` — 4 jobs: backend (ruff+pytest), frontend (vitest+build),
   k8s-validate (kubectl kustomize base+dev+staging+prod), e2e-kind (build→kind→load→
