@@ -50,6 +50,9 @@ jobs:
         with:
           context: backend
           push: true
+          # provenance attestations make an OCI index that kind's containerd
+          # fails to pull (imagePullBackOff) — keep plain single manifests
+          provenance: false
           tags: |
             ${{ env.BACKEND_IMG }}:${{ steps.meta.outputs.tag }}
             ${{ env.BACKEND_IMG }}:latest
@@ -61,6 +64,7 @@ jobs:
         with:
           context: frontend
           push: true
+          provenance: false
           tags: |
             ${{ env.FRONTEND_IMG }}:${{ steps.meta.outputs.tag }}
             ${{ env.FRONTEND_IMG }}:latest
@@ -117,6 +121,13 @@ jobs:
           kubectl -n ai-trading-staging rollout status deploy/frontend --timeout=240s
           kubectl -n ai-trading-staging rollout status deploy/worker   --timeout=240s
           kubectl -n ai-trading-staging get pods -o wide
+
+      - name: Debug on deploy failure
+        if: failure()
+        run: |
+          kubectl -n ai-trading-staging get pods -o wide || true
+          kubectl -n ai-trading-staging describe deployments || true
+          kubectl -n ai-trading-staging get events --sort-by=.lastTimestamp | tail -30 || true
 
       - name: Smoke — in-cluster API + frontend
         run: |
