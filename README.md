@@ -1,8 +1,8 @@
 # 🤖 AI Trading Signal Platform
 
 <!-- First push ke baad YOUR_GH_OWNER apne GitHub username se replace karein -->
-[![CI](https://github.com/YOUR_GH_OWNER/ai-trading-signal-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_GH_OWNER/ai-trading-signal-platform/actions/workflows/ci.yml)
-[![CD](https://github.com/YOUR_GH_OWNER/ai-trading-signal-platform/actions/workflows/cd.yml/badge.svg)](https://github.com/YOUR_GH_OWNER/ai-trading-signal-platform/actions/workflows/cd.yml)
+[![CI](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/ci.yml)
+[![CD](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/cd.yml/badge.svg)](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/cd.yml)
 
 End-to-end **AI-integrated DevOps project**: crypto trading signals (technical indicators + LLM commentary) generated from live Binance data, with a fully automated deployment pipeline — Docker, Kubernetes, GitHub Actions CI/CD, Prometheus/Grafana monitoring.
 
@@ -69,9 +69,8 @@ End-to-end **AI-integrated DevOps project**: crypto trading signals (technical i
 ## Quick start (CI/CD — first push)
 
 ```bash
-git remote add origin git@github.com:YOUR_GH_OWNER/ai-trading-signal-platform.git
+git remote add origin https://github.com/daniyalbadar300/ai-trading-signal-platform.git
 git push -u origin master          # CI + CD dono trigger honge
-# README badges me YOUR_GH_OWNER replace karein
 ```
 
 CI pushes: tests + kustomize validate + kind e2e (merge gate).
