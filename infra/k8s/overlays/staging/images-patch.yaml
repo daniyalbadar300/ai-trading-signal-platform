@@ -26,3 +26,19 @@ spec:
       containers:
         - name: frontend
           image: ghcr.io/__CD_OWNER__/ai-trading-frontend:__CD_TAG__
+---
+# Worker reuses the backend image (its own entrypoint via command:) —
+# without this patch it keeps pulling ai-trading/backend:latest from
+# Docker Hub, which does not exist (ImagePullBackOff → rollout timeout).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: worker
+          image: ghcr.io/__CD_OWNER__/ai-trading-backend:__CD_TAG__
