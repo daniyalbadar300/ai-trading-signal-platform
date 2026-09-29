@@ -116,7 +116,15 @@ fail repeatedly, or when API 5xx rate exceeds 5%.
 make demo    # narrated end-to-end: tests → render → deploy → live signals → monitoring
 ```
 
-### 5. Local development
+### 5. Public URLs (cloud) — Vercel + Render
+
+```bash
+# poora guide: DEPLOY-CLOUD.md
+# frontend → Vercel (Root Directory: frontend, VITE_API_BASE=<render-url>)
+# backend+worker → Render (render.yaml blueprint, free tier)
+```
+
+### 6. Local development
 
 ```bash
 cd backend

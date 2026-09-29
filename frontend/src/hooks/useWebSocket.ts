@@ -30,8 +30,12 @@ export function useWebSocket(): WsState {
 
     const connect = () => {
       if (closedRef.current) return
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      const ws = new WebSocket(`${proto}://${location.host}/ws/signals`)
+      // VITE_API_BASE set → derive the WS host from it (https→wss).
+      // Otherwise same-origin (vite proxy / nginx / ingress handle the upgrade).
+      const apiBase = import.meta.env.VITE_API_BASE
+      const proto = apiBase ? apiBase.replace(/^http/, 'ws').replace(/\/$/, '')
+                           : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
+      const ws = new WebSocket(`${proto}/ws/signals`)
       socketRef.current = ws
 
       ws.onopen = () => {

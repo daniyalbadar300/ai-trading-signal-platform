@@ -1,0 +1,23 @@
+# Render.com blueprint: backend (+ in-process worker) on the free tier.
+# Frontend deploys separately to Vercel (Root Directory: frontend,
+# VITE_API_BASE=https://<this-service>.onrender.com) — see DEPLOY-CLOUD.md.
+services:
+  - type: web
+    name: ai-trading-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Single-service cloud mode: the API process runs its own worker and
+      # keeps history in memory (no Redis on the free tier).
+      - key: WORKER_ENABLED
+        value: "true"
+      - key: DATA_PROVIDER
+        value: binance      # mock for an offline demo
+      - key: REDIS_URL
+        sync: false         # leave empty in the dashboard (in-memory mode)
+      - key: METRICS_ENABLED
+        value: "false"
