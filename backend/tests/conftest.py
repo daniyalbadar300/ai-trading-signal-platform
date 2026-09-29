@@ -6,6 +6,8 @@ import os
 os.environ.setdefault("DATA_PROVIDER", "mock")
 # Fast worker ticks so WS/live tests do not wait a full minute.
 os.environ.setdefault("WORKER_INTERVAL_SECONDS", "2")
+# Metrics endpoint exercised by test_metrics.py.
+os.environ.setdefault("METRICS_ENABLED", "true")
 
 import math
 from datetime import UTC, datetime, timedelta

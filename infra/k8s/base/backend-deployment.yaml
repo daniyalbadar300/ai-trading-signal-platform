@@ -11,6 +11,12 @@ spec:
     metadata:
       labels:
         app: backend
+      annotations:
+        # Scraped by the phase-7 Prometheus (infra/monitoring); inert without
+        # one. Pair with METRICS_ENABLED=true (dev overlay sets it).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
     spec:
       securityContext:
         runAsNonRoot: true

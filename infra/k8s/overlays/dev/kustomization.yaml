@@ -13,6 +13,7 @@ configMapGenerator:
     literals:
       - DATA_PROVIDER=mock
       - WORKER_INTERVAL_SECONDS=15
+      - METRICS_ENABLED=true
       - LOG_LEVEL=DEBUG
 
 # Local cluster: smaller footprint

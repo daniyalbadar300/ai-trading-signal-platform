@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Event bus: empty = in-process; set REDIS_URL for cross-container pub/sub
     redis_url: str = ""
 
+    # Metrics (phase 7): /metrics endpoint + HTTP/worker Prometheus counters.
+    # Off by default; k8s deployments enable it via configmap.
+    metrics_enabled: bool = False
+
     # AI layer (phase 2, optional)
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"

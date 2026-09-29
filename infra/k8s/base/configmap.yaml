@@ -10,4 +10,5 @@ data:
   WORKER_INTERVAL_SECONDS: "60"
   WORKER_ENABLED: "false"
   REDIS_URL: "redis://redis:6379/0"
+  METRICS_ENABLED: "false"
   LOG_LEVEL: "INFO"

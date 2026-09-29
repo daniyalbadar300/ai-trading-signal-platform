@@ -13,6 +13,14 @@ from datetime import UTC, datetime
 from app.ai.commentary import CommentaryProvider, LLMCommentary
 from app.config import Settings
 from app.events import EventBus
+from app.metrics import (
+    COMMENTARY_SOURCE,
+    SIGNALS_GENERATED,
+    WORKER_CYCLE_ERRORS,
+    WORKER_CYCLES,
+    WORKER_LAST_SUCCESS_TIMESTAMP,
+    WORKER_RUNNING,
+)
 from app.services import SignalService
 from app.store import SignalStore
 
@@ -49,21 +57,29 @@ class SignalWorker:
 
     async def run_cycle(self) -> list:
         """One generation pass over the whole watchlist."""
-        signals = await self._service.get_all_signals()
-        for signal in signals:
-            commentary = await self._commentator.generate(signal)
-            await self._store.save(signal)
-            await self._bus.publish(
-                SIGNALS_CHANNEL,
-                {
-                    **signal.model_dump(mode="json"),
-                    "commentary": commentary.model_dump(mode="json"),
-                },
-            )
-            self.signals_generated += 1
+        try:
+            signals = await self._service.get_all_signals()
+            for signal in signals:
+                commentary = await self._commentator.generate(signal)
+                await self._store.save(signal)
+                await self._bus.publish(
+                    SIGNALS_CHANNEL,
+                    {
+                        **signal.model_dump(mode="json"),
+                        "commentary": commentary.model_dump(mode="json"),
+                    },
+                )
+                self.signals_generated += 1
+                SIGNALS_GENERATED.labels(signal.symbol, signal.action).inc()
+                COMMENTARY_SOURCE.labels(commentary.source).inc()
+        except Exception:  # noqa: BLE001 - loop must survive anything
+            WORKER_CYCLE_ERRORS.inc()
+            raise
         self.cycles += 1
         self.last_cycle_at = datetime.now(UTC)
         self.last_error = None
+        WORKER_CYCLES.inc()
+        WORKER_LAST_SUCCESS_TIMESTAMP.set(datetime.now(UTC).timestamp())
         return signals
 
     async def start(self) -> None:
@@ -71,6 +87,7 @@ class SignalWorker:
         if self._running:
             return
         self._running = True
+        WORKER_RUNNING.set(1)
         self._task = asyncio.create_task(self._loop(), name="signal-worker")
         logger.info(
             "worker started (interval=%ss, symbols=%s)", self._interval, self._settings.symbol_list
@@ -79,6 +96,7 @@ class SignalWorker:
     async def stop(self) -> None:
         """Cancel the loop and wait for a clean exit."""
         self._running = False
+        WORKER_RUNNING.set(0)
         if self._task:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -89,6 +107,7 @@ class SignalWorker:
         while self._running:
             try:
                 await self.run_cycle()
+                self.last_error = None
             except Exception as exc:  # noqa: BLE001 - loop must survive anything
                 logger.exception("worker cycle failed")
                 self.last_error = str(exc)

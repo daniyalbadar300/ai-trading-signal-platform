@@ -1,4 +1,4 @@
-.PHONY: dev-backend test lint fmt up down logs build tools
+.PHONY: dev-backend test lint fmt up down logs build tools monitoring-up monitoring-down
 
 # Project-local kind binary (repo me commit nahi hota)
 tools:
@@ -30,6 +30,18 @@ logs:
 
 build:
 	docker compose -f infra/docker-compose.yml build
+
+# ── Monitoring (phase 7) ────────────────────────────
+# Requires the app overlay first (make deploy) — shares ai-trading-dev ns
+# and the trading.local ingress.
+monitoring-up:
+	kubectl apply -k infra/monitoring
+	kubectl -n ai-trading-dev rollout status deploy/prometheus --timeout=180s
+	kubectl -n ai-trading-dev rollout status deploy/grafana --timeout=180s
+	@echo "Prometheus: http://trading.local:8090/prometheus - Grafana: http://trading.local:8090/grafana"
+
+monitoring-down:
+	kubectl delete -k infra/monitoring --ignore-not-found
 
 # ── Kubernetes (phase 5) ───────────────────────────
 KIND := ./.tools/kind.exe

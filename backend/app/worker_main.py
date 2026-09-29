@@ -48,6 +48,10 @@ async def build_worker() -> SignalWorker:
 async def main() -> None:
     settings = get_settings()
     setup_logging(settings.log_level)
+    if settings.metrics_enabled:
+        from prometheus_client import start_http_server
+
+        start_http_server(8000)  # worker-side metrics (:8000, path /)
     worker = await build_worker()
     await worker.start()
     print(  # noqa: T201

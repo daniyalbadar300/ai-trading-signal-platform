@@ -82,7 +82,7 @@ jobs:
       - name: kubectl kustomize (dry-render every manifest set)
         run: |
           set -euo pipefail
-          for dir in infra/k8s/base infra/k8s/overlays/dev infra/k8s/overlays/staging infra/k8s/overlays/prod; do
+          for dir in infra/k8s/base infra/k8s/overlays/dev infra/k8s/overlays/staging infra/k8s/overlays/prod infra/monitoring; do
             echo "::group::kubectl kustomize $dir"
             kubectl kustomize "$dir" > /dev/null
             echo "::endgroup::"

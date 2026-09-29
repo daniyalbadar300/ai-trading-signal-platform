@@ -1,5 +1,51 @@
 # 📋 Project Progress
 
+## Phase 7: Monitoring — ✅ COMPLETE (Sep 29)
+
+**Verified live:** Prometheus pod-SD scraping worker + backend ×2 (all `up`, `namespace`/`pod`
+labels), `worker_cycles_total=36` flowing, 4 alerts loaded (health ok), Grafana datasource
++ "AI Trading Signals" dashboard provisioned, `/prometheus` + `/grafana` 200 via shared
+trading.local ingress. **Alert state machine live-tested:** worker deployment deleted →
+WorkerDown + WorkerNoSuccessfulCycles went pending (for-window) → worker restored →
+0 active alerts. 82/82 pytest + ruff clean.
+
+### What exists (new in phase 7)
+- `app/metrics.py` — shared collectors: http_requests (method/path-template/status),
+  request-duration histogram, worker_running gauge, worker_cycles / cycle_errors counters,
+  worker_last_success_timestamp, signals_generated{symbol,action}, commentary_source{source}
+- API: `/metrics` endpoint gated by `METRICS_ENABLED` (default false) + middleware
+  instrumentation (skips /metrics itself; route-template paths for low cardinality)
+- Worker: same registry + `prometheus_client.start_http_server(8000)` in both
+  lifespan (in-process) and worker_main (standalone) when metrics enabled
+- `infra/monitoring/` kustomize stack: prometheus (RBAC Role/RoleBinding, pod-SD
+  `own_namespace: true`, route-prefix /prometheus, 3d retention) + grafana (provisioned
+  datasource `http://prometheus:9090/prometheus`, dashboard JSON, anonymous viewer,
+  GF_SERVER_SERVE_FROM_SUB_PATH) + monitoring ingress (/prometheus, /grafana)
+- Alert rules: WorkerDown (`absent(worker_running) == 1 or max(worker_running) < 1`),
+  WorkerNoSuccessfulCycles, WorkerCycleErrors, ApiHighErrorRate (5xx > 5%)
+- `make monitoring-up/monitoring-down`; CI k8s-validate covers infra/monitoring
+- base deployments carry prometheus.io/* annotations (inert without the stack);
+  dev overlay sets METRICS_ENABLED=true
+
+### Gotchas learned (do not regress)
+1. **kustomize namespace transformer does NOT rewrite ClusterRoleBinding subject
+   namespaces** — binding pointed SA `ai-trading-dev:prometheus` at `ai-trading` (403).
+   Fix: namespaced Role + RoleBinding, subject WITHOUT namespace (binding's ns is used).
+2. **kubernetes_sd role:pod does a CLUSTER-WIDE pod LIST** — forbidden with a namespaced
+   Role even when permissions are correct (`can-i` in-ns = yes). Fix:
+   `namespaces: own_namespace: true` in kubernetes_sd_configs.
+3. **`--web.route-prefix=/prometheus` moves health endpoints too** — probes must hit
+   `/prometheus/-/ready` etc. Self-scrape needs `metrics_path: /prometheus/metrics`.
+4. **Grafana behind a sub-path needs BOTH** `GF_SERVER_ROOT_URL` and
+   `GF_SERVER_SERVE_FROM_SUB_PATH=true` — otherwise ingress /grafana 404s.
+5. **`absent()` branch in WorkerDown** — plain `max()<1` stays silent when the worker
+   pod (and its series) disappears entirely; `absent(worker_running) == 1 or ...` covers
+   both. Live-tested via pod deletion.
+6. **Git Bash /tmp vs Windows python paths don't mix** — pipe JSON through stdin instead
+   of temp files in verification one-liners.
+7. Test counters are process-global: capture `before` values; never assert absolute
+   numbers. Gauge reads via `._value.get()` (no `.get()` on the Gauge object).
+
 ## Phase 6: CI/CD — ✅ COMPLETE (Sep 27)
 
 **Verified:** ruff clean + 75/75 pytest + 8/8 vitest + vite build green; kustomize render OK

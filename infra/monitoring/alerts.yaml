@@ -1,0 +1,47 @@
+groups:
+  - name: ai-trading
+    rules:
+      - alert: WorkerDown
+        # Fires both when the loop reports stopped (max<1) and when the
+        # worker pod is gone entirely (absent series → max() is empty).
+        expr: absent(worker_running) == 1 or max(worker_running) < 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Signal worker not running
+          description: >-
+            No process reports worker_running=1 for 2 minutes — signal
+            generation has stopped.
+
+      - alert: WorkerNoSuccessfulCycles
+        expr: time() - max(worker_last_success_timestamp_seconds) > 120
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Worker has not completed a cycle recently
+          description: >-
+            Last successful worker cycle is older than 120s while the loop
+            claims to be running.
+
+      - alert: WorkerCycleErrors
+        expr: increase(worker_cycle_errors_total[10m]) > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker cycles failing
+          description: More than 3 failed cycles in the last 10 minutes.
+
+      - alert: ApiHighErrorRate
+        expr: >
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: API 5xx rate above 5%
+          description: >-
+            More than 5% of API requests returned server errors over the
+            last 5 minutes.

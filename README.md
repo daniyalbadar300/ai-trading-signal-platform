@@ -18,7 +18,7 @@ End-to-end **AI-integrated DevOps project**: crypto trading signals (technical i
 | 4 | Docker (multi-stage + compose stack) | ✅ **done** |
 | 5 | Kubernetes (kustomize, probes, HPA) | ✅ **done** |
 | 6 | CI/CD (GitHub Actions + kind e2e) | ✅ **done** |
-| 7 | Monitoring (Prometheus + Grafana + alerts) | ⬜ |
+| 7 | Monitoring (Prometheus + Grafana + alerts) | ✅ **done** |
 | 8 | Polish (README, demo flow) | ⬜ |
 
 ## ✨ What works right now
@@ -66,6 +66,16 @@ End-to-end **AI-integrated DevOps project**: crypto trading signals (technical i
   `__CD_OWNER__/__CD_TAG__` placeholders se kustomize render owner-agnostic rehta hai
   (CI validate kar sakta hai bina GitHub owner jaane).
 
+**Monitoring (Phase 7):**
+- **Prometheus** pod-discovery scraping (own-namespace RBAC Role) → `/metrics` on API
+  pods + standalone worker (`prometheus_client`), 3d retention, `/prometheus` on shared ingress
+- **Grafana** provisioned datasource + **"AI Trading Signals" dashboard** (worker status,
+  signals by action, commentary source LLM-vs-rules, API 5xx, latency p95) at `/grafana`
+- **Alerts**: WorkerDown (absent-series branch included), WorkerNoSuccessfulCycles,
+  WorkerCycleErrors, ApiHighErrorRate — state machine live-verified (pending→resolved)
+- `make monitoring-up` / `make monitoring-down`; `METRICS_ENABLED=false` by default
+  (dev overlay enables it)
+
 ## Quick start (CI/CD — first push)
 
 ```bash
@@ -76,6 +86,16 @@ git push -u origin master          # CI + CD dono trigger honge
 CI pushes: tests + kustomize validate + kind e2e (merge gate).
 CD pushes: GHCR images (`ghcr.io/<owner>/ai-trading-{backend,frontend}:sha-<ref>`)
 + staging cluster deploy + smoke.
+
+## Quick start (Monitoring)
+
+```bash
+make deploy          # app pehle (dev overlay)
+make monitoring-up   # prometheus + grafana same cluster/ingress par
+# Grafana:    http://trading.local:8090/grafana   (anonymous viewer, dashboard preloaded)
+# Prometheus: http://trading.local:8090/prometheus
+make monitoring-down
+```
 
 ## Quick start (Docker — full stack)
 
