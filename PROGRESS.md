@@ -45,6 +45,12 @@ WorkerDown + WorkerNoSuccessfulCycles went pending (for-window) → worker resto
    of temp files in verification one-liners.
 7. Test counters are process-global: capture `before` values; never assert absolute
    numbers. Gauge reads via `._value.get()` (no `.get()` on the Gauge object).
+8. **Windows SO_REUSEADDR masks EADDRINUSE** — two lifespan startups both binding
+   start_http_server(8000) passed locally but CI (Linux) failed. Fix: METRICS_PORT
+   (0 = ephemeral in tests) + bind failure only warns. Rule: port-binding code in
+   lifespan must be collision-tolerant and tests must use port 0.
+9. Pod-SD scrape target = pod IP:port directly; the worker needs NO k8s Service for
+   metrics (phase 5 shipped it service-less — scrape annotations are enough).
 
 ## Phase 6: CI/CD — ✅ COMPLETE (Sep 27)
 
