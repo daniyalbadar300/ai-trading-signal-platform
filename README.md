@@ -1,168 +1,194 @@
 # 🤖 AI Trading Signal Platform
 
-<!-- First push ke baad YOUR_GH_OWNER apne GitHub username se replace karein -->
 [![CI](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/ci.yml)
 [![CD](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/cd.yml/badge.svg)](https://github.com/daniyalbadar300/ai-trading-signal-platform/actions/workflows/cd.yml)
 
-End-to-end **AI-integrated DevOps project**: crypto trading signals (technical indicators + LLM commentary) generated from live Binance data, with a fully automated deployment pipeline — Docker, Kubernetes, GitHub Actions CI/CD, Prometheus/Grafana monitoring.
+> End-to-end **AI-integrated DevOps project**: real-time crypto trading signals
+> (technical indicators + LLM commentary) generated from Binance data, shipped
+> through a fully automated pipeline — Docker, Kubernetes (kustomize + kind),
+> GitHub Actions CI/CD, and Prometheus/Grafana monitoring.
 
 > ⚠️ Educational/portfolio project. Not financial advice.
 
-## 🚦 Build Progress
+## Architecture
 
-| Phase | Description | Status |
-|---|---|---|
-| 1 | Backend core (data providers, indicators, signals, FastAPI, tests) | ✅ **done** |
-| 2 | AI layer (LLM commentary) + Worker scheduler | ✅ **done** |
-| 3 | Frontend dashboard (React + Vite) | ✅ **done** |
-| 4 | Docker (multi-stage + compose stack) | ✅ **done** |
-| 5 | Kubernetes (kustomize, probes, HPA) | ✅ **done** |
-| 6 | CI/CD (GitHub Actions + kind e2e) | ✅ **done** |
-| 7 | Monitoring (Prometheus + Grafana + alerts) | ✅ **done** |
-| 8 | Polish (README, demo flow) | ⬜ |
+```mermaid
+flowchart LR
+    subgraph market[Market Data]
+        BINANCE[Binance REST<br/>no API key]
+        MOCK[Mock Provider<br/>deterministic · offline · CI]
+    end
 
-## ✨ What works right now
+    subgraph app[Backend · FastAPI]
+        SVC[Signal Service<br/>TTL cache · single-flight]
+        ENGINE[Indicators + Scoring<br/>RSI · MACD · EMA · Bollinger]
+        AI[Commentary<br/>LLM → rule-based fallback]
+        WORKER[Signal Worker<br/>interval loop]
+        API[REST + WebSocket]
+    end
 
-**Signals & AI (Phase 1+2):**
-- **Live signals** from Binance public API (no key needed): RSI(14) + MACD(12/26/9) + EMA 20/50 cross + Bollinger Bands + volume → weighted composite score → **BUY / SELL / HOLD** with confidence %
-- **AI commentary**: LLM narrates every signal (any OpenAI-compatible API — OpenAI/Gemini/Groq/Ollama) with automatic **rule-based fallback** — works with zero API keys
-- **Background worker**: generates signals every N seconds, stores history, broadcasts live
-- **Pluggable data layer**: `BinanceProvider` (live) / `MockDataProvider` (deterministic, offline demo + CI)
-- **TTL cache** with single-flight coalescing — never hammers upstream APIs
+    REDIS[("Redis<br/>pub/sub · history")]
 
-**APIs:**
-- REST: `/health`, `/api/v1/symbols`, `/api/v1/candles/{symbol}`, `/api/v1/signals/{symbol}`, `/api/v1/signals`, `/api/v1/history`, `/api/v1/stats`, `/worker/status`
-- **WebSocket** `/ws/signals`: snapshot on connect + live signal stream
+    subgraph ui[Dashboard]
+        NGINX[nginx]
+        REACT[React 19 + Vite<br/>candles · live signals]
+    end
 
-**Dashboard (Phase 3):**
-- **Live candlestick chart** (TradingView lightweight-charts) with dark trading theme
-- **Signal cards** with action badges (🟢 BUY / 🔴 SELL / 🟡 HOLD) + confidence meters + mini indicators
-- **AI commentary panel** with source badge (`llm:*` or `rule-engine`) + risk note
-- **WebSocket live stream**: snapshot on load + real-time updates + auto-reconnect with backoff
-- Symbol tabs, stats card, signal history table (auto-refresh)
+    subgraph obs[Observability]
+        PROM[Prometheus<br/>pod discovery]
+        GRAF[Grafana<br/>provisioned dashboard]
+        RULES[Alerts<br/>WorkerDown · API 5xx]
+    end
 
-**Docker (Phase 4):**
-- **`make up`** = pura 5-service stack: backend + dedicated worker + Redis + nginx frontend
-- Multi-stage, non-root images; worker → **Redis pub/sub** → API → dashboard (cross-container)
-- Healthchecks, AOF-persistent Redis, `.env`-driven config (`DATA_PROVIDER=mock` = offline demo)
-
-**Kubernetes (Phase 5):**
-- Kustomize: `base` + `overlays/dev` (mock data, fast worker, 1 replica) & `overlays/prod`
-- **HPA** (2→6 backend pods @70% CPU), health probes, resource limits, non-root securityContext
-- Redis **PVC**, Ingress (nginx) with WebSocket routing, `trading.local` host
-- Deploy to local **kind** cluster: `make deploy` (project-local kind, no system install)
-
-**Quality:** 83 passing tests (75 backend pytest + 8 frontend vitest), ruff clean, structured JSON logging
-
-**CI/CD (Phase 6):**
-- **CI** (`.github/workflows/ci.yml`): ruff + pytest (75) / vitest + build (8) parallel,
-  `kubectl kustomize` dry-render of base + dev/staging/prod, phir **kind e2e**: images build →
-  load → dev overlay deploy → rollout wait → in-cluster smoke (health `mock`, frontend HTML,
-  worker→store polling) → ingress smoke on :8090. CI fully offline (MockDataProvider).
-- **CD** (`.github/workflows/cd.yml`): main push → GHCR publish (`sha-xxxxxxx` + `latest`,
-  GHA layer cache) → staging overlay deploy to kind with exact-SHA image pinning +
-  `ghcr-pull` secret → same smoke suite.
-- **Staging overlay** (`infra/k8s/overlays/staging`): dev-jaisi shape lekin GHCR images;
-  `__CD_OWNER__/__CD_TAG__` placeholders se kustomize render owner-agnostic rehta hai
-  (CI validate kar sakta hai bina GitHub owner jaane).
-
-**Monitoring (Phase 7):**
-- **Prometheus** pod-discovery scraping (own-namespace RBAC Role) → `/metrics` on API
-  pods + standalone worker (`prometheus_client`), 3d retention, `/prometheus` on shared ingress
-- **Grafana** provisioned datasource + **"AI Trading Signals" dashboard** (worker status,
-  signals by action, commentary source LLM-vs-rules, API 5xx, latency p95) at `/grafana`
-- **Alerts**: WorkerDown (absent-series branch included), WorkerNoSuccessfulCycles,
-  WorkerCycleErrors, ApiHighErrorRate — state machine live-verified (pending→resolved)
-- `make monitoring-up` / `make monitoring-down`; `METRICS_ENABLED=false` by default
-  (dev overlay enables it)
-
-## Quick start (CI/CD — first push)
-
-```bash
-git remote add origin https://github.com/daniyalbadar300/ai-trading-signal-platform.git
-git push -u origin master          # CI + CD dono trigger honge
+    BINANCE & MOCK --> SVC --> ENGINE
+    ENGINE --> AI
+    WORKER --> SVC
+    WORKER -->|publish signals| REDIS
+    REDIS -->|bridge| API
+    API --> NGINX --> REACT
+    WORKER & API -->|/metrics| PROM
+    PROM --> GRAF
+    PROM --> RULES
 ```
 
-CI pushes: tests + kustomize validate + kind e2e (merge gate).
-CD pushes: GHCR images (`ghcr.io/<owner>/ai-trading-{backend,frontend}:sha-<ref>`)
-+ staging cluster deploy + smoke.
+**Delivery pipeline:** every push → CI (lint + tests + kustomize validation +
+**kind e2e deploy & smoke**); every push to `master` → CD (images to GHCR with
+SHA tags → staging overlay deployed into a fresh kind cluster with real
+registry pulls → smoke suite).
 
-## Quick start (Monitoring)
+<!-- 📸 Screenshots: docs/screenshots/ me daalein —
+     dashboard.png  = trading dashboard (localhost:8090)
+     grafana.png    = /grafana "AI Trading Signals" dashboard
+     prometheus.png = /prometheus targets page
+-->
+
+## ✨ Highlights by phase
+
+| Phase | What was built |
+|---|---|
+| 1 · Backend core | Binance/Mock providers with TTL single-flight cache, pure-pandas indicators (RSI-14 Wilder, MACD 12/26/9, EMA 20/50, Bollinger 20/2σ, volume ratio), weighted composite scorer (threshold 0.15), FastAPI REST |
+| 2 · AI + worker | LLM commentary (any OpenAI-compatible API) with automatic rule-based fallback, background `SignalWorker` (store → publish), `/api/v1/history`, `/api/v1/stats`, WebSocket snapshot-then-live stream |
+| 3 · Dashboard | React 19 + Vite + Tailwind v4, lightweight-charts v5 candlesticks, signal cards with confidence meters, WS auto-reconnect with stale-socket guard, history table |
+| 4 · Docker | Multi-stage non-root images, 5-service compose stack (backend, worker, Redis AOF, nginx frontend), cross-container worker→Redis→API→WS flow |
+| 5 · Kubernetes | Kustomize base + dev/staging/prod overlays, HPA 2→6 @70% CPU, probes, non-root securityContext, Redis PVC, nginx ingress with WebSocket routing, project-local kind |
+| 6 · CI/CD | GitHub Actions: 4-job CI (ruff/pytest, vitest/build, kustomize validate, kind e2e + smoke), CD (GHCR SHA-tagged publish → staging deploy with real pulls → smoke) |
+| 7 · Monitoring | `prometheus-client` metrics (API + worker), Prometheus pod-discovery + alert rules, Grafana with provisioned "AI Trading Signals" dashboard, alert lifecycle live-tested |
+
+**Quality:** 90 passing tests (82 pytest + 8 vitest) · ruff clean · JSON structured
+logging with request IDs · alerts verified end-to-end (pending → resolved).
+
+## 🚀 Quick starts
+
+### 1. Docker Compose — full stack
 
 ```bash
-make deploy          # app pehle (dev overlay)
-make monitoring-up   # prometheus + grafana same cluster/ingress par
-# Grafana:    http://trading.local:8090/grafana   (anonymous viewer, dashboard preloaded)
+make up        # backend + worker + redis + frontend
+curl http://localhost:8000/api/v1/stats
+# dashboard: http://localhost:5173
+make down
+```
+
+### 2. Kubernetes (kind) — dev overlay
+
+```bash
+make deploy    # cluster up + images load + dev overlay + ingress-nginx
+# hosts file me add karein:  127.0.0.1 trading.local
+# dashboard:  http://trading.local:8090
+make undeploy && make cluster-down   # cleanup
+```
+
+### 3. Monitoring — Prometheus + Grafana
+
+```bash
+make deploy         # app pehle (dev overlay)
+make monitoring-up  # same cluster + shared ingress
+# Grafana:    http://trading.local:8090/grafana  (anonymous viewer, dashboard preloaded)
 # Prometheus: http://trading.local:8090/prometheus
 make monitoring-down
 ```
 
-## Quick start (Docker — full stack)
+Alerts fire when the worker dies (`absent(worker_running)` branch), when cycles
+fail repeatedly, or when API 5xx rate exceeds 5%.
+
+### 4. Guided demo
 
 ```bash
-make up      # build + start: backend, worker, redis, frontend
-curl http://localhost:8000/api/v1/stats
-# dashboard: http://localhost:5173
-make down    # stop everything
+make demo    # narrated end-to-end: tests → render → deploy → live signals → monitoring
 ```
 
-## Quick start (Kubernetes — kind)
-
-```bash
-make deploy        # cluster up + images load + dev overlay apply + ingress
-# hosts file me add karein:  127.0.0.1 trading.local
-# dashboard: http://trading.local:8090
-make undeploy      # remove k8s resources
-make cluster-down  # delete kind cluster
-```
-
-## Quick start (dev)
+### 5. Local development
 
 ```bash
 cd backend
 python -m venv .venv
-source .venv/Scripts/activate      # Windows Git Bash (Linux/Mac: source .venv/bin/activate)
+source .venv/Scripts/activate       # Windows Git Bash (Linux/Mac: .venv/bin/activate)
 pip install -e ".[dev]"
 
-DATA_PROVIDER=binance uvicorn app.main:app --reload --port 8000
-# ya offline demo ke liye:
 DATA_PROVIDER=mock uvicorn app.main:app --reload --port 8000
+DATA_PROVIDER=binance uvicorn app.main:app --reload --port 8000   # live data
+
+python -m pytest && python -m ruff check app tests
 ```
-
-Docs: http://localhost:8000/docs · Health: http://localhost:8000/health
-
-Worker auto-starts with the API (default 60s cycle; override with `WORKER_INTERVAL_SECONDS`).
-Open **http://localhost:8000/docs** for the interactive API explorer.
-
-```bash
-# tests + lint
-python -m pytest
-python -m ruff check app tests
-```
-
-### Frontend (dev)
 
 ```bash
 cd frontend
-npm install
-npm run dev          # http://localhost:5173 (proxies /api + /ws to :8000)
-
-npm test             # vitest
-npm run build        # type-check + production bundle
+npm install && npm run dev          # http://localhost:5173 (proxies /api + /ws → :8000)
+npm test && npm run build
 ```
 
-Keep the backend running on :8000 — the dev server proxies API and WebSocket calls to it.
+## 🔌 API
 
-## API examples
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Liveness + upstream reachability (`provider`, `upstream_ok`) |
+| `GET /metrics` | Prometheus text format (gated by `METRICS_ENABLED`) |
+| `GET /api/v1/symbols` | Configured watchlist |
+| `GET /api/v1/candles/{symbol}?interval=1m&limit=120` | OHLCV candles (cached) |
+| `GET /api/v1/signals/{symbol}` | Composite signal: action, confidence, indicators, contributions, commentary |
+| `GET /api/v1/signals` | Signals for the whole watchlist |
+| `GET /api/v1/history?limit=50&symbol=BTCUSDT` | Worker-generated history (newest first) |
+| `GET /api/v1/stats` | Aggregate counters over stored signals |
+| `GET /worker/status` | Worker loop snapshot (`cycles`, `last_error`, …) |
+| `WS /ws/signals` | `{type:"snapshot"}` on connect, then `{type:"signal"}` per event |
 
 ```bash
 curl http://localhost:8000/api/v1/signals/BTCUSDT
 # {"symbol":"BTCUSDT","action":"BUY","confidence":0.98,"score":0.44,
-#  "indicators":{"rsi_14":33.4,...},"contributions":{"rsi":0.19,"macd":0.24,...}}
-
-curl http://localhost:8000/api/v1/history?limit=5   # worker-generated history
-curl http://localhost:8000/api/v1/stats            # {"total": 12, "actions": {"BUY": 4, ...}}
-
-# Live stream (snapshot + updates):
-websocat ws://localhost:8000/ws/signals
+#  "indicators":{"rsi_14":33.4,...},"commentary":{...,"source":"rule-engine"}}
 ```
+
+## ⚙️ Configuration (env / `.env` — see `.env.example`)
+
+| Key | Default | Purpose |
+|---|---|---|
+| `DATA_PROVIDER` | `binance` | `binance` (live, no key) · `mock` (deterministic offline) |
+| `SYMBOLS` | `BTCUSDT,ETHUSDT,SOLUSDT` | Watchlist |
+| `WORKER_INTERVAL_SECONDS` | `60` | Signal generation cadence |
+| `WORKER_ENABLED` | `true` | `false` when a dedicated worker container runs |
+| `REDIS_URL` | *(empty)* | Empty = in-process bus/store; set for cross-container pub/sub |
+| `SIGNAL_THRESHOLD` | `0.15` | BUY/SELL trigger vs HOLD |
+| `METRICS_ENABLED` | `false` | Prometheus `/metrics` + worker metrics server |
+| `OPENAI_API_KEY` / `_BASE_URL` / `_MODEL` | — | Optional; works with OpenAI/Gemini/Groq/Ollama |
+
+## 📁 Project layout
+
+```
+backend/    FastAPI app: providers · indicators · signals · AI · worker
+            · store · events · redis_bus · metrics · tests (82)
+frontend/   React 19 + Vite dashboard · nginx.conf · vitest (8)
+infra/
+  docker-compose.yml    5-service local stack
+  k8s/base+overlays     kustomize: dev (mock) / staging (GHCR) / prod
+  monitoring/           Prometheus + Grafana + alert rules (kustomize)
+  kind-config.yaml      local cluster (hostPort 8090→80)
+scripts/demo.sh          narrated end-to-end demo
+.github/workflows/       ci.yml (tests + kind e2e) · cd.yml (GHCR + staging)
+```
+
+## 📚 Notes
+
+- Deployment gotchas and hard-won lessons (RBAC + pod discovery, OCI index
+  pulls on kind, PEP 621, Windows/Linux CI differences …) are recorded in
+  [PROGRESS.md](PROGRESS.md) — the build log of all 8 phases.
+- CI runs fully offline (`DATA_PROVIDER=mock` pinned in conftest); no secrets
+  needed — the AI layer degrades gracefully to rule-based commentary.

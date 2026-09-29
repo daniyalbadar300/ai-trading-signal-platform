@@ -1,4 +1,4 @@
-.PHONY: dev-backend test lint fmt up down logs build tools monitoring-up monitoring-down
+.PHONY: dev-backend test lint fmt up down logs build tools monitoring-up monitoring-down demo
 
 # Project-local kind binary (repo me commit nahi hota)
 tools:
@@ -42,6 +42,10 @@ monitoring-up:
 
 monitoring-down:
 	kubectl delete -k infra/monitoring --ignore-not-found
+
+# Narrated end-to-end demo (scripts/demo.sh); FAST=1 skips pauses.
+demo:
+	bash scripts/demo.sh
 
 # ── Kubernetes (phase 5) ───────────────────────────
 KIND := ./.tools/kind.exe

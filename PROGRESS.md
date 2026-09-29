@@ -1,5 +1,31 @@
 # 📋 Project Progress
 
+## Phase 8: Final Polish — ✅ COMPLETE (Sep 29)
+
+**Verified:** README fully reworked (mermaid architecture diagram, phase table, API +
+config reference, project layout); `scripts/demo.sh` narrated 8-step demo + `make demo`;
+all 8 phases ✅. CI/CD green on the polish commit.
+
+### What exists (new in phase 8)
+- README v2: architecture flowchart (mermaid renders natively on GitHub), highlights by
+  phase, 5 quick starts (compose / kind / monitoring / demo / dev), API table,
+  config table, project layout, CI-offline note
+- `scripts/demo.sh` — screen-share friendly narrated demo (env check → tests → render →
+  build/load → deploy → live signals → monitoring → alert lifecycle → cleanup);
+  `FAST=1` skips pauses; `make demo` target
+- Repo About/topics/description one-paste block (below)
+- Screenshot placeholders in README (`docs/screenshots/`) — capture dashboard/grafana/
+  prometheus from a browser and drop them in; README comment marks the exact spots
+
+### GitHub repo settings (browser me paste karein)
+- **Description:** `AI-integrated DevOps portfolio: real-time crypto signals (indicators +
+  LLM commentary) on Binance data — FastAPI, React, Redis, Docker, Kubernetes (kustomize
+  + kind), GitHub Actions CI/CD with e2e kind deploys, Prometheus/Grafana monitoring.`
+- **Website:** `http://trading.local:8090` nahi (local) — blank chhod dein ya GHCR link
+- **Topics:** `fastapi` `react` `kubernetes` `kustomize` `kind` `docker` `github-actions`
+  `cicd` `prometheus` `grafana` `redis` `websocket` `binance` `trading-signals` `devops`
+  `portfolio` `python` `typescript`
+
 ## Phase 7: Monitoring — ✅ COMPLETE (Sep 29)
 
 **Verified live:** Prometheus pod-SD scraping worker + backend ×2 (all `up`, `namespace`/`pod`
