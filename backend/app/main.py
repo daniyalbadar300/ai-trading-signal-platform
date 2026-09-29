@@ -1,6 +1,7 @@
 """FastAPI application entrypoint."""
 
 import asyncio
+import logging
 import time
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,8 @@ from app.events import InMemoryEventBus
 from app.logging import new_request_id, request_id_ctx, setup_logging
 from app.metrics import HTTP_REQUEST_DURATION, HTTP_REQUESTS
 from app.worker import SIGNALS_CHANNEL
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -40,7 +43,10 @@ async def lifespan(app: FastAPI):
         if settings.metrics_enabled:
             from prometheus_client import start_http_server
 
-            start_http_server(8000)  # worker-side metrics (:8000, path /)
+            try:
+                start_http_server(settings.metrics_port)  # worker-side metrics
+            except OSError as exc:
+                logger.warning("metrics server not started: %s", exc)
 
     yield
 

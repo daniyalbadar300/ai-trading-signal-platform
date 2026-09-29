@@ -37,8 +37,10 @@ class Settings(BaseSettings):
     redis_url: str = ""
 
     # Metrics (phase 7): /metrics endpoint + HTTP/worker Prometheus counters.
-    # Off by default; k8s deployments enable it via configmap.
+    # Off by default; k8s deployments enable it via configmap. Port 0 =
+    # ephemeral (tests), 8000 in k8s (scrape annotations target it).
     metrics_enabled: bool = False
+    metrics_port: int = 8000
 
     # AI layer (phase 2, optional)
     openai_api_key: str = ""
